@@ -1,6 +1,281 @@
-"""Main window composition."""
+"""Jendela utama — merakit semua komponen UI dan tool registry."""
+import tkinter as tk
+from app.config import COLOR_BG_WORKSPACE, COLOR_BG_DARK, TOOL_LINE
+from app.core.canvas_state import CanvasState
+from app.core.history import History
+from app.core.exporter import export_canvas
+from app.ui.toolbar import Toolbar
+from app.ui.properties_bar import PropertiesBar
+from app.ui.side_panel import SidePanel
+from app.ui.canvas_widget import CanvasWidget
+from app.ui.color_palette import ColorPalette
+from app.ui.status_bar import StatusBar
+from app.tools.select_tool import SelectTool
+from app.tools.pencil_tool import PencilTool
+from app.tools.shape_tool import ShapeTool
+from app.tools.fill_tool import FillTool
+from app.tools.eyedropper_tool import EyedropperTool
+from app.tools.transform_tool import TransformTool
+from app.config import (
+    TOOL_SELECT, TOOL_PENCIL, TOOL_LINE, TOOL_RECT,
+    TOOL_CIRCLE, TOOL_ELLIPSE, TOOL_TRIANGLE, TOOL_POLYGON,
+    TOOL_FILL, TOOL_EYEDROPPER, TOOL_ERASER, TOOL_TRANSFORM
+)
 
 
 class MainWindow:
-    def __init__(self):
-        self.title = "Paint App"
+    def __init__(self, root: tk.Tk):
+        self.root = root
+        self.root.title("Paint App — Grafika Komputer")
+        self.root.geometry("1280x720")
+        self.root.configure(bg=COLOR_BG_DARK)
+        self.root.minsize(800, 500)
+
+        self.state   = CanvasState()
+        self.history = History()
+
+        self._build_menu()
+        self._build_ui()
+        self._register_tools()
+        self._bind_shortcuts()
+
+        # Set tool awal
+        self.toolbar.set_active(TOOL_LINE)
+
+    # ── Menu bar ─────────────────────────────────────────────────────
+    def _build_menu(self):
+        menubar = tk.Menu(self.root)
+        file_menu = tk.Menu(menubar, tearoff=0)
+        file_menu.add_command(label="Baru",           command=self._new_canvas)
+        file_menu.add_command(label="Simpan (PNG)",   command=self._save)
+        file_menu.add_separator()
+        file_menu.add_command(label="Keluar",          command=self.root.quit)
+        menubar.add_cascade(label="File", menu=file_menu)
+
+        edit_menu = tk.Menu(menubar, tearoff=0)
+        edit_menu.add_command(label="Undo  Ctrl+Z", command=self._undo)
+        edit_menu.add_command(label="Redo  Ctrl+Y", command=self._redo)
+        edit_menu.add_separator()
+        edit_menu.add_command(label="Hapus Canvas",  command=self._clear)
+        menubar.add_cascade(label="Edit", menu=edit_menu)
+
+        self.root.config(menu=menubar)
+
+    # ── UI layout ────────────────────────────────────────────────────
+    def _build_ui(self):
+        # Toolbar atas
+        self.toolbar = Toolbar(
+            self.root, self.state,
+            on_tool_change=self._on_tool_change,
+            on_transform_action=self._on_transform_action
+        )
+        self.toolbar.pack(side=tk.TOP, fill=tk.X)
+
+        # Color palette (masih bagian toolbar row)
+        self.color_palette = ColorPalette(
+            self.toolbar, self.state,
+            on_color_change=self._on_color_change
+        )
+        self.color_palette.pack(side=tk.RIGHT, padx=8)
+
+        # Properties sub-bar
+        self.props_bar = PropertiesBar(self.root, self.state)
+        self.props_bar.pack(side=tk.TOP, fill=tk.X)
+
+        # Body (side panel + canvas)
+        body = tk.Frame(self.root, bg=COLOR_BG_WORKSPACE)
+        body.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+
+        self.side_panel = SidePanel(body, self.state)
+        self.side_panel.pack(side=tk.LEFT, fill=tk.Y)
+
+        # Canvas widget (dibuat sementara, tools disiapkan setelah ini)
+        self._canvas_frame = body  # simpan referensi
+
+        # Status bar
+        self.status_bar = StatusBar(
+            self.root, self.state,
+            on_zoom_change=self._on_zoom_change
+        )
+        self.status_bar.pack(side=tk.BOTTOM, fill=tk.X)
+
+    def _register_tools(self):
+        # Canvas widget
+        self.canvas_widget = CanvasWidget(
+            self._canvas_frame, self.state, self.history,
+            tool_registry={},
+            on_cursor_move=self._on_cursor_move
+        )
+        self.canvas_widget.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        redraw = self.canvas_widget.redraw
+        canvas = self.canvas_widget._canvas
+        get_img = self.canvas_widget.get_pil_image
+        set_img = self.canvas_widget.set_pil_image
+
+        shape_tool = ShapeTool(self.state, canvas, redraw)
+
+        self._tools = {
+            TOOL_SELECT:     SelectTool(self.state, canvas, redraw),
+            TOOL_PENCIL:     PencilTool(self.state, canvas, redraw),
+            TOOL_LINE:       shape_tool,
+            TOOL_RECT:       shape_tool,
+            TOOL_CIRCLE:     shape_tool,
+            TOOL_ELLIPSE:    shape_tool,
+            TOOL_TRIANGLE:   shape_tool,
+            TOOL_POLYGON:    shape_tool,
+            TOOL_FILL:       FillTool(self.state, canvas, redraw, get_img, set_img),
+            TOOL_EYEDROPPER: EyedropperTool(self.state, canvas, redraw, get_img,
+                                             self._on_eyedropper_pick),
+            TOOL_ERASER:     PencilTool(self.state, canvas, redraw),
+            TOOL_TRANSFORM:  TransformTool(self.state, canvas, redraw),
+        }
+        # Inject ke canvas_widget
+        self.canvas_widget.tool_registry = self._tools
+
+        # Update size display
+        self.status_bar.update_size(self.state.width, self.state.height)
+
+    # ── Callbacks ────────────────────────────────────────────────────
+    def _on_tool_change(self, tool_id):
+        # Eraser pakai warna bg
+        if tool_id == TOOL_ERASER:
+            self.state.fg_color = self.state.bg_color
+        self.canvas_widget.redraw()
+
+    def _on_color_change(self, target, color):
+        self.canvas_widget.redraw()
+
+    def _on_cursor_move(self, x, y):
+        self.state.cursor_x = x
+        self.state.cursor_y = y
+        self.status_bar.update_cursor(x, y)
+        self.status_bar.update_size(self.state.width, self.state.height)
+
+    def _on_zoom_change(self, pct):
+        self.canvas_widget.zoom_update(pct)
+
+    def _on_eyedropper_pick(self, color):
+        self.color_palette.refresh()
+
+    def _on_transform_action(self, action):
+        """Tampilkan dialog input lalu apply transformasi."""
+        tool: TransformTool = self._tools.get(TOOL_TRANSFORM)
+        if not tool:
+            return
+        if self.state.selected_index == -1:
+            tk.messagebox.showwarning("Transform",
+                "Pilih objek dulu menggunakan tool Transform (✥).")
+            return
+
+        if action == "translate":
+            self._transform_dialog("Translasi",
+                [("tx (px)", 0), ("ty (px)", 0)],
+                lambda v: tool.apply_translate(v[0], v[1]))
+        elif action == "rotate":
+            self._transform_dialog("Rotasi",
+                [("Sudut (°)", 45)],
+                lambda v: tool.apply_rotate(v[0]))
+        elif action == "scale":
+            self._transform_dialog("Skala",
+                [("sx", 1.5), ("sy", 1.5)],
+                lambda v: tool.apply_scale(v[0], v[1]))
+        elif action == "reflect":
+            self._reflect_dialog(tool)
+        elif action == "shear":
+            self._transform_dialog("Shear",
+                [("shx", 0.0), ("shy", 0.0)],
+                lambda v: tool.apply_shear(v[0], v[1]))
+
+    def _transform_dialog(self, title, fields, apply_fn):
+        win = tk.Toplevel(self.root)
+        win.title(title)
+        win.geometry("260x" + str(80 + len(fields)*40))
+        win.configure(bg=COLOR_BG_DARK)
+        win.grab_set()
+
+        entries = []
+        for label, default in fields:
+            row = tk.Frame(win, bg=COLOR_BG_DARK)
+            row.pack(fill=tk.X, padx=16, pady=6)
+            tk.Label(row, text=label, bg=COLOR_BG_DARK,
+                     fg="white", width=10, anchor="w").pack(side=tk.LEFT)
+            e = tk.Entry(row, bg="#333", fg="white", insertbackground="white", width=10)
+            e.insert(0, str(default))
+            e.pack(side=tk.LEFT, padx=6)
+            entries.append(e)
+
+        def ok():
+            try:
+                vals = [float(e.get()) for e in entries]
+                apply_fn(vals)
+            except ValueError:
+                tk.messagebox.showerror("Error", "Masukkan nilai angka yang valid.")
+            win.destroy()
+
+        tk.Button(win, text="Apply", bg="#00b4d8", fg="white",
+                  font=("Segoe UI", 10, "bold"), bd=0, padx=16,
+                  command=ok).pack(pady=10)
+
+    def _reflect_dialog(self, tool):
+        win = tk.Toplevel(self.root)
+        win.title("Refleksi")
+        win.geometry("220x200")
+        win.configure(bg=COLOR_BG_DARK)
+        win.grab_set()
+        opts = [("Sumbu X","x"),("Sumbu Y","y"),
+                ("Titik Pusat","origin"),("Diagonal y=x","diagonal")]
+        for label, mode in opts:
+            tk.Button(
+                win, text=label, bg="#333", fg="white",
+                font=("Segoe UI", 10), bd=0, padx=12, pady=6,
+                activebackground="#00b4d8", cursor="hand2",
+                command=lambda m=mode: [tool.apply_reflect(m), win.destroy()]
+            ).pack(fill=tk.X, padx=16, pady=4)
+
+    # ── Edit actions ─────────────────────────────────────────────────
+    def _undo(self):
+        result = self.history.undo(self.state.objects)
+        if result is not None:
+            self.state.objects = result
+            self.canvas_widget.redraw()
+
+    def _redo(self):
+        result = self.history.redo(self.state.objects)
+        if result is not None:
+            self.state.objects = result
+            self.canvas_widget.redraw()
+
+    def _clear(self):
+        self.history.save(self.state.objects)
+        self.state.clear()
+        self.canvas_widget.redraw()
+
+    def _new_canvas(self):
+        self.history.clear()
+        self.state.clear()
+        from PIL import Image
+        self.canvas_widget._pil_image = Image.new(
+            "RGB", (self.state.width, self.state.height), "white"
+        )
+        self.canvas_widget.redraw()
+
+    def _save(self):
+        export_canvas(
+            self.canvas_widget._canvas,
+            self.state.width, self.state.height
+        )
+
+    def _bind_shortcuts(self):
+        self.root.bind("<Control-z>", lambda e: self._undo())
+        self.root.bind("<Control-y>", lambda e: self._redo())
+        self.root.bind("<Control-s>", lambda e: self._save())
+        self.root.bind("<Delete>", lambda e: self._delete_selected())
+
+    def _delete_selected(self):
+        idx = self.state.selected_index
+        if idx >= 0:
+            self.history.save(self.state.objects)
+            self.state.remove_object(idx)
+            self.state.selected_index = -1
+            self.canvas_widget.redraw()

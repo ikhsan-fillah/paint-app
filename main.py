@@ -1,6 +1,8 @@
-"""Entry point for the paint app."""
-
+"""Entry point — jalankan file ini untuk memulai aplikasi."""
+import tkinter as tk
+from app.ui.main_window import MainWindow
 
 if __name__ == "__main__":
-    # TODO: wire up UI and app startup.
-    pass
+    root = tk.Tk()
+    app = MainWindow(root)
+    root.mainloop()

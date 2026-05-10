@@ -1,9 +1,80 @@
-"""Basic transform helpers."""
+"""Transformasi 2D menggunakan matriks homogeneous 3x3 (numpy)."""
+import numpy as np
+import math
 
 
-def translate(points, dx, dy):
-    return [(x + dx, y + dy) for x, y in points]
+def _apply(matrix, points):
+    """Terapkan matriks 3x3 ke list of (x,y). Return list of (x,y) baru."""
+    result = []
+    for x, y in points:
+        v = np.array([x, y, 1], dtype=float)
+        vt = matrix @ v
+        result.append((round(vt[0]), round(vt[1])))
+    return result
 
 
-def scale(points, sx, sy):
-    return [(int(x * sx), int(y * sy)) for x, y in points]
+def translate(points, tx, ty):
+    """Translasi: geser sejauh (tx, ty)."""
+    M = np.array([
+        [1, 0, tx],
+        [0, 1, ty],
+        [0, 0,  1]
+    ], dtype=float)
+    return _apply(M, points)
+
+
+def rotate(points, angle_deg, cx=0, cy=0):
+    """Rotasi terhadap titik pusat (cx,cy) sebesar angle_deg derajat."""
+    rad = math.radians(angle_deg)
+    cos_a, sin_a = math.cos(rad), math.sin(rad)
+    # Geser ke origin → rotasi → geser balik
+    T1 = np.array([[1,0,-cx],[0,1,-cy],[0,0,1]], dtype=float)
+    R  = np.array([[cos_a,-sin_a,0],[sin_a,cos_a,0],[0,0,1]], dtype=float)
+    T2 = np.array([[1,0,cx],[0,1,cy],[0,0,1]], dtype=float)
+    M = T2 @ R @ T1
+    return _apply(M, points)
+
+
+def scale(points, sx, sy, cx=0, cy=0):
+    """Penskalaan terhadap titik pusat (cx,cy)."""
+    T1 = np.array([[1,0,-cx],[0,1,-cy],[0,0,1]], dtype=float)
+    S  = np.array([[sx,0,0],[0,sy,0],[0,0,1]], dtype=float)
+    T2 = np.array([[1,0,cx],[0,1,cy],[0,0,1]], dtype=float)
+    M = T2 @ S @ T1
+    return _apply(M, points)
+
+
+def reflect_x(points):
+    """Refleksi terhadap sumbu X: y' = -y."""
+    M = np.array([[1,0,0],[0,-1,0],[0,0,1]], dtype=float)
+    return _apply(M, points)
+
+
+def reflect_y(points):
+    """Refleksi terhadap sumbu Y: x' = -x."""
+    M = np.array([[-1,0,0],[0,1,0],[0,0,1]], dtype=float)
+    return _apply(M, points)
+
+
+def reflect_origin(points):
+    """Refleksi terhadap titik pusat: x'=-x, y'=-y."""
+    M = np.array([[-1,0,0],[0,-1,0],[0,0,1]], dtype=float)
+    return _apply(M, points)
+
+
+def reflect_diagonal(points):
+    """Refleksi terhadap garis y=x: tukar x dan y."""
+    M = np.array([[0,1,0],[1,0,0],[0,0,1]], dtype=float)
+    return _apply(M, points)
+
+
+def shear_x(points, shx):
+    """Shear terhadap sumbu X: x' = x + shx*y."""
+    M = np.array([[1,shx,0],[0,1,0],[0,0,1]], dtype=float)
+    return _apply(M, points)
+
+
+def shear_y(points, shy):
+    """Shear terhadap sumbu Y: y' = y + shy*x."""
+    M = np.array([[1,0,0],[shy,1,0],[0,0,1]], dtype=float)
+    return _apply(M, points)
