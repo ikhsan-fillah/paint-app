@@ -1,0 +1,7 @@
+"""App configuration defaults."""
+
+
+DEFAULT_CANVAS_WIDTH = 800
+DEFAULT_CANVAS_HEIGHT = 600
+DEFAULT_BRUSH_SIZE = 3
+DEFAULT_COLOR = (0, 0, 0)
