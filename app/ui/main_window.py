@@ -1,6 +1,7 @@
 """Jendela utama — merakit semua komponen UI dan tool registry."""
 import tkinter as tk
-from app.config import COLOR_BG_WORKSPACE, COLOR_BG_DARK, TOOL_LINE
+from tkinter import messagebox
+from app.config import COLOR_BG_WORKSPACE, COLOR_BG_DARK
 from app.core.canvas_state import CanvasState
 from app.core.history import History
 from app.core.exporter import export_canvas
@@ -33,6 +34,7 @@ class MainWindow:
 
         self.state   = CanvasState()
         self.history = History()
+        self._prev_fg_color = self.state.fg_color  # simpan warna sebelum eraser
 
         self._build_menu()
         self._build_ui()
@@ -67,7 +69,8 @@ class MainWindow:
         self.toolbar = Toolbar(
             self.root, self.state,
             on_tool_change=self._on_tool_change,
-            on_transform_action=self._on_transform_action
+            on_transform_action=self._on_transform_action,
+            on_canvas_resize=self._on_canvas_resize
         )
         self.toolbar.pack(side=tk.TOP, fill=tk.X)
 
@@ -89,8 +92,7 @@ class MainWindow:
         self.side_panel = SidePanel(body, self.state)
         self.side_panel.pack(side=tk.LEFT, fill=tk.Y)
 
-        # Canvas widget (dibuat sementara, tools disiapkan setelah ini)
-        self._canvas_frame = body  # simpan referensi
+        self._canvas_frame = body
 
         # Status bar
         self.status_bar = StatusBar(
@@ -100,7 +102,6 @@ class MainWindow:
         self.status_bar.pack(side=tk.BOTTOM, fill=tk.X)
 
     def _register_tools(self):
-        # Canvas widget
         self.canvas_widget = CanvasWidget(
             self._canvas_frame, self.state, self.history,
             tool_registry={},
@@ -108,8 +109,8 @@ class MainWindow:
         )
         self.canvas_widget.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-        redraw = self.canvas_widget.redraw
-        canvas = self.canvas_widget._canvas
+        redraw  = self.canvas_widget.redraw
+        canvas  = self.canvas_widget._canvas
         get_img = self.canvas_widget.get_pil_image
         set_img = self.canvas_widget.set_pil_image
 
@@ -130,17 +131,20 @@ class MainWindow:
             TOOL_ERASER:     PencilTool(self.state, canvas, redraw),
             TOOL_TRANSFORM:  TransformTool(self.state, canvas, redraw),
         }
-        # Inject ke canvas_widget
         self.canvas_widget.tool_registry = self._tools
-
-        # Update size display
         self.status_bar.update_size(self.state.width, self.state.height)
 
     # ── Callbacks ────────────────────────────────────────────────────
     def _on_tool_change(self, tool_id):
-        # Eraser pakai warna bg
         if tool_id == TOOL_ERASER:
+            # simpan warna fg sekarang, ganti ke bg untuk eraser
+            self._prev_fg_color = self.state.fg_color
             self.state.fg_color = self.state.bg_color
+        else:
+            # kembalikan warna fg jika sebelumnya pakai eraser
+            if self.state.fg_color == self.state.bg_color and self._prev_fg_color:
+                self.state.fg_color = self._prev_fg_color
+            self.color_palette.refresh()
         self.canvas_widget.redraw()
 
     def _on_color_change(self, target, color):
@@ -158,14 +162,71 @@ class MainWindow:
     def _on_eyedropper_pick(self, color):
         self.color_palette.refresh()
 
+    def _on_canvas_resize(self):
+        """Buka dialog untuk mengubah ukuran / rasio canvas."""
+        win = tk.Toplevel(self.root)
+        win.title("Ubah Ukuran Canvas")
+        win.geometry("280x190")
+        win.configure(bg=COLOR_BG_DARK)
+        win.resizable(False, False)
+        win.grab_set()
+
+        fields = [("Lebar (px)", self.state.width), ("Tinggi (px)", self.state.height)]
+        entries = []
+        for label, default in fields:
+            row = tk.Frame(win, bg=COLOR_BG_DARK)
+            row.pack(fill=tk.X, padx=20, pady=8)
+            tk.Label(row, text=label, bg=COLOR_BG_DARK, fg="white",
+                     font=("Segoe UI", 10), width=12, anchor="w").pack(side=tk.LEFT)
+            e = tk.Entry(row, bg="#333", fg="white", insertbackground="white",
+                         font=("Segoe UI", 10), width=8)
+            e.insert(0, str(default))
+            e.pack(side=tk.LEFT, padx=6)
+            entries.append(e)
+
+        # Preset rasio
+        preset_frame = tk.Frame(win, bg=COLOR_BG_DARK)
+        preset_frame.pack(pady=4)
+        tk.Label(preset_frame, text="Preset:", bg=COLOR_BG_DARK, fg="#aaa",
+                 font=("Segoe UI", 8)).pack(side=tk.LEFT, padx=4)
+        for label, w, h in [("4:3", 800, 600), ("16:9", 1280, 720), ("1:1", 600, 600)]:
+            tk.Button(
+                preset_frame, text=label, bg="#333", fg="white",
+                font=("Segoe UI", 8), bd=0, padx=8, pady=2,
+                cursor="hand2", activebackground="#555",
+                command=lambda _w=w, _h=h: [
+                    entries[0].delete(0, tk.END), entries[0].insert(0, str(_w)),
+                    entries[1].delete(0, tk.END), entries[1].insert(0, str(_h))
+                ]
+            ).pack(side=tk.LEFT, padx=3)
+
+        def apply():
+            try:
+                new_w = max(100, int(entries[0].get()))
+                new_h = max(100, int(entries[1].get()))
+            except ValueError:
+                messagebox.showerror("Error", "Masukkan angka yang valid.", parent=win)
+                return
+            self.canvas_widget.resize_canvas(new_w, new_h)
+            self.status_bar.update_size(new_w, new_h)
+            win.destroy()
+
+        tk.Button(
+            win, text="Apply", bg="#00b4d8", fg="white",
+            font=("Segoe UI", 10, "bold"), bd=0, padx=20, pady=4,
+            cursor="hand2", command=apply
+        ).pack(pady=8)
+
     def _on_transform_action(self, action):
         """Tampilkan dialog input lalu apply transformasi."""
         tool: TransformTool = self._tools.get(TOOL_TRANSFORM)
         if not tool:
             return
         if self.state.selected_index == -1:
-            tk.messagebox.showwarning("Transform",
-                "Pilih objek dulu menggunakan tool Transform (✥).")
+            messagebox.showwarning(
+                "Transform",
+                "Pilih objek dulu menggunakan tool Select Transform (✥)."
+            )
             return
 
         if action == "translate":
@@ -190,17 +251,20 @@ class MainWindow:
     def _transform_dialog(self, title, fields, apply_fn):
         win = tk.Toplevel(self.root)
         win.title(title)
-        win.geometry("260x" + str(80 + len(fields)*40))
+        win.geometry("260x" + str(100 + len(fields) * 44))
         win.configure(bg=COLOR_BG_DARK)
+        win.resizable(False, False)
         win.grab_set()
 
         entries = []
         for label, default in fields:
             row = tk.Frame(win, bg=COLOR_BG_DARK)
-            row.pack(fill=tk.X, padx=16, pady=6)
+            row.pack(fill=tk.X, padx=16, pady=8)
             tk.Label(row, text=label, bg=COLOR_BG_DARK,
-                     fg="white", width=10, anchor="w").pack(side=tk.LEFT)
-            e = tk.Entry(row, bg="#333", fg="white", insertbackground="white", width=10)
+                     fg="white", width=10, anchor="w",
+                     font=("Segoe UI", 10)).pack(side=tk.LEFT)
+            e = tk.Entry(row, bg="#333", fg="white", insertbackground="white",
+                         font=("Segoe UI", 10), width=10)
             e.insert(0, str(default))
             e.pack(side=tk.LEFT, padx=6)
             entries.append(e)
@@ -210,28 +274,33 @@ class MainWindow:
                 vals = [float(e.get()) for e in entries]
                 apply_fn(vals)
             except ValueError:
-                tk.messagebox.showerror("Error", "Masukkan nilai angka yang valid.")
+                messagebox.showerror("Error", "Masukkan nilai angka yang valid.", parent=win)
+                return
             win.destroy()
 
-        tk.Button(win, text="Apply", bg="#00b4d8", fg="white",
-                  font=("Segoe UI", 10, "bold"), bd=0, padx=16,
-                  command=ok).pack(pady=10)
+        tk.Button(
+            win, text="Apply", bg="#00b4d8", fg="white",
+            font=("Segoe UI", 10, "bold"), bd=0, padx=16, pady=4,
+            cursor="hand2", command=ok
+        ).pack(pady=10)
 
     def _reflect_dialog(self, tool):
         win = tk.Toplevel(self.root)
         win.title("Refleksi")
-        win.geometry("220x200")
+        win.geometry("220x210")
         win.configure(bg=COLOR_BG_DARK)
+        win.resizable(False, False)
         win.grab_set()
-        opts = [("Sumbu X","x"),("Sumbu Y","y"),
-                ("Titik Pusat","origin"),("Diagonal y=x","diagonal")]
-        for label, mode in opts:
+        for label, mode in [
+            ("Sumbu X", "x"), ("Sumbu Y", "y"),
+            ("Titik Pusat", "origin"), ("Diagonal y=x", "diagonal")
+        ]:
             tk.Button(
                 win, text=label, bg="#333", fg="white",
                 font=("Segoe UI", 10), bd=0, padx=12, pady=6,
                 activebackground="#00b4d8", cursor="hand2",
                 command=lambda m=mode: [tool.apply_reflect(m), win.destroy()]
-            ).pack(fill=tk.X, padx=16, pady=4)
+            ).pack(fill=tk.X, padx=16, pady=3)
 
     # ── Edit actions ─────────────────────────────────────────────────
     def _undo(self):
@@ -270,7 +339,7 @@ class MainWindow:
         self.root.bind("<Control-z>", lambda e: self._undo())
         self.root.bind("<Control-y>", lambda e: self._redo())
         self.root.bind("<Control-s>", lambda e: self._save())
-        self.root.bind("<Delete>", lambda e: self._delete_selected())
+        self.root.bind("<Delete>",    lambda e: self._delete_selected())
 
     def _delete_selected(self):
         idx = self.state.selected_index
