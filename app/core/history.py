@@ -8,26 +8,33 @@ class History:
         self._redo_stack: list = []
         self.max_steps = max_steps
 
-    def save(self, objects: list):
+    def _snapshot(self, objects: list, image=None):
+        snap = {
+            "objects": copy.deepcopy(objects),
+            "image": image.copy() if image is not None else None,
+        }
+        return snap
+
+    def save(self, objects: list, image=None):
         """Simpan snapshot state saat ini sebelum perubahan."""
-        self._undo_stack.append(copy.deepcopy(objects))
+        self._undo_stack.append(self._snapshot(objects, image))
         if len(self._undo_stack) > self.max_steps:
             self._undo_stack.pop(0)
         self._redo_stack.clear()
 
-    def undo(self, current_objects: list):
-        """Kembalikan state sebelumnya. Return list objects atau None."""
+    def undo(self, current_objects: list, current_image=None):
+        """Kembalikan state sebelumnya. Return snapshot dict atau None."""
         if not self._undo_stack:
             return None
-        self._redo_stack.append(copy.deepcopy(current_objects))
-        return copy.deepcopy(self._undo_stack.pop())
+        self._redo_stack.append(self._snapshot(current_objects, current_image))
+        return self._undo_stack.pop()
 
-    def redo(self, current_objects: list):
-        """Maju kembali ke state setelah undo. Return list objects atau None."""
+    def redo(self, current_objects: list, current_image=None):
+        """Maju kembali ke state setelah undo. Return snapshot dict atau None."""
         if not self._redo_stack:
             return None
-        self._undo_stack.append(copy.deepcopy(current_objects))
-        return copy.deepcopy(self._redo_stack.pop())
+        self._undo_stack.append(self._snapshot(current_objects, current_image))
+        return self._redo_stack.pop()
 
     def can_undo(self) -> bool:
         return len(self._undo_stack) > 0

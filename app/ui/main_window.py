@@ -111,24 +111,32 @@ class MainWindow:
 
         redraw  = self.canvas_widget.redraw
         canvas  = self.canvas_widget._canvas
-        get_img = self.canvas_widget.get_pil_image
-        set_img = self.canvas_widget.set_pil_image
+        get_base = self.canvas_widget.get_base_image
+        set_base = self.canvas_widget.set_base_image
+        get_comp = self.canvas_widget.get_composited_image
 
-        shape_tool = ShapeTool(self.state, canvas, redraw)
+        shape_tool = ShapeTool(self.state, canvas, redraw, self.canvas_widget._canvas_to_screen)
 
         self._tools = {
             TOOL_SELECT:     SelectTool(self.state, canvas, redraw),
-            TOOL_PENCIL:     PencilTool(self.state, canvas, redraw),
+            TOOL_PENCIL:     PencilTool(self.state, canvas, redraw,
+                                        to_screen_fn=self.canvas_widget._canvas_to_screen),
             TOOL_LINE:       shape_tool,
             TOOL_RECT:       shape_tool,
             TOOL_CIRCLE:     shape_tool,
             TOOL_ELLIPSE:    shape_tool,
             TOOL_TRIANGLE:   shape_tool,
             TOOL_POLYGON:    shape_tool,
-            TOOL_FILL:       FillTool(self.state, canvas, redraw, get_img, set_img),
-            TOOL_EYEDROPPER: EyedropperTool(self.state, canvas, redraw, get_img,
+            TOOL_FILL:       FillTool(self.state, canvas, redraw, get_comp, get_base, set_base),
+            TOOL_EYEDROPPER: EyedropperTool(self.state, canvas, redraw, get_comp,
                                              self._on_eyedropper_pick),
-            TOOL_ERASER:     PencilTool(self.state, canvas, redraw),
+            TOOL_ERASER:     PencilTool(
+                self.state, canvas, redraw,
+                get_base_image_fn=self.canvas_widget.get_base_image,
+                set_base_image_fn=self.canvas_widget.set_base_image,
+                flatten_fn=self.canvas_widget.flatten_objects_to_base,
+                to_screen_fn=self.canvas_widget._canvas_to_screen
+            ),
             TOOL_TRANSFORM:  TransformTool(self.state, canvas, redraw),
         }
         self.canvas_widget.tool_registry = self._tools
@@ -230,23 +238,25 @@ class MainWindow:
             return
 
         if action == "translate":
-            self._transform_dialog("Translasi",
-                [("tx (px)", 0), ("ty (px)", 0)],
-                lambda v: tool.apply_translate(v[0], v[1]))
+            self._translate_dialog(tool)
         elif action == "rotate":
             self._transform_dialog("Rotasi",
                 [("Sudut (°)", 45)],
-                lambda v: tool.apply_rotate(v[0]))
+                lambda v: self._apply_transform(lambda: tool.apply_rotate(v[0])))
         elif action == "scale":
             self._transform_dialog("Skala",
                 [("sx", 1.5), ("sy", 1.5)],
-                lambda v: tool.apply_scale(v[0], v[1]))
+                lambda v: self._apply_transform(lambda: tool.apply_scale(v[0], v[1])))
         elif action == "reflect":
             self._reflect_dialog(tool)
         elif action == "shear":
             self._transform_dialog("Shear",
                 [("shx", 0.0), ("shy", 0.0)],
-                lambda v: tool.apply_shear(v[0], v[1]))
+                lambda v: self._apply_transform(lambda: tool.apply_shear(v[0], v[1])))
+
+    def _apply_transform(self, apply_fn):
+        self.history.save(self.state.objects, self.canvas_widget.get_base_image())
+        apply_fn()
 
     def _transform_dialog(self, title, fields, apply_fn):
         win = tk.Toplevel(self.root)
@@ -299,24 +309,79 @@ class MainWindow:
                 win, text=label, bg="#333", fg="white",
                 font=("Segoe UI", 10), bd=0, padx=12, pady=6,
                 activebackground="#00b4d8", cursor="hand2",
-                command=lambda m=mode: [tool.apply_reflect(m), win.destroy()]
+                command=lambda m=mode: [self._apply_transform(lambda: tool.apply_reflect(m)), win.destroy()]
             ).pack(fill=tk.X, padx=16, pady=3)
+
+    def _translate_dialog(self, tool):
+        win = tk.Toplevel(self.root)
+        win.title("Translasi")
+        win.geometry("260x240")
+        win.configure(bg=COLOR_BG_DARK)
+        win.resizable(False, False)
+        win.grab_set()
+
+        tk.Label(win, text="Jarak (px)", bg=COLOR_BG_DARK, fg="#ccc",
+                 font=("Segoe UI", 9)).pack(pady=(12, 4))
+
+        dist_var = tk.DoubleVar(value=10)
+        dist_entry = tk.Entry(win, bg="#333", fg="white", insertbackground="white",
+                              font=("Segoe UI", 10), width=10, textvariable=dist_var)
+        dist_entry.pack()
+
+        grid = tk.Frame(win, bg=COLOR_BG_DARK)
+        grid.pack(pady=12)
+
+        def move(dx, dy):
+            try:
+                d = float(dist_var.get())
+            except ValueError:
+                messagebox.showerror("Error", "Masukkan angka yang valid.", parent=win)
+                return
+            self._apply_transform(lambda: tool.apply_translate(dx * d, dy * d))
+
+        btn_style = dict(bg="#333", fg="white", font=("Segoe UI", 10),
+                         bd=0, width=4, height=2, cursor="hand2",
+                         activebackground="#00b4d8")
+
+        tk.Button(grid, text="↖", command=lambda: move(-1, -1), **btn_style).grid(row=0, column=0, padx=4, pady=4)
+        tk.Button(grid, text="↑", command=lambda: move(0, -1), **btn_style).grid(row=0, column=1, padx=4, pady=4)
+        tk.Button(grid, text="↗", command=lambda: move(1, -1), **btn_style).grid(row=0, column=2, padx=4, pady=4)
+
+        tk.Button(grid, text="←", command=lambda: move(-1, 0), **btn_style).grid(row=1, column=0, padx=4, pady=4)
+        tk.Button(grid, text="•", command=lambda: move(0, 0), **btn_style).grid(row=1, column=1, padx=4, pady=4)
+        tk.Button(grid, text="→", command=lambda: move(1, 0), **btn_style).grid(row=1, column=2, padx=4, pady=4)
+
+        tk.Button(grid, text="↙", command=lambda: move(-1, 1), **btn_style).grid(row=2, column=0, padx=4, pady=4)
+        tk.Button(grid, text="↓", command=lambda: move(0, 1), **btn_style).grid(row=2, column=1, padx=4, pady=4)
+        tk.Button(grid, text="↘", command=lambda: move(1, 1), **btn_style).grid(row=2, column=2, padx=4, pady=4)
+
+        tk.Button(
+            win, text="Tutup", bg="#444", fg="white",
+            font=("Segoe UI", 9), bd=0, padx=16, pady=4,
+            cursor="hand2", command=win.destroy
+        ).pack(pady=(4, 10))
 
     # ── Edit actions ─────────────────────────────────────────────────
     def _undo(self):
-        result = self.history.undo(self.state.objects)
+        result = self.history.undo(self.state.objects, self.canvas_widget.get_base_image())
         if result is not None:
-            self.state.objects = result
-            self.canvas_widget.redraw()
+            self.state.objects = result.get("objects", [])
+            if result.get("image") is not None:
+                self.canvas_widget.set_base_image(result["image"])
+            else:
+                self.canvas_widget.redraw()
 
     def _redo(self):
-        result = self.history.redo(self.state.objects)
+        result = self.history.redo(self.state.objects, self.canvas_widget.get_base_image())
         if result is not None:
-            self.state.objects = result
-            self.canvas_widget.redraw()
+            self.state.objects = result.get("objects", [])
+            if result.get("image") is not None:
+                self.canvas_widget.set_base_image(result["image"])
+            else:
+                self.canvas_widget.redraw()
 
     def _clear(self):
-        self.history.save(self.state.objects)
+        self.history.save(self.state.objects, self.canvas_widget.get_base_image())
         self.state.clear()
         self.canvas_widget.redraw()
 
@@ -324,15 +389,15 @@ class MainWindow:
         self.history.clear()
         self.state.clear()
         from PIL import Image
-        self.canvas_widget._pil_image = Image.new(
+        self.canvas_widget.set_base_image(Image.new(
             "RGB", (self.state.width, self.state.height), "white"
-        )
-        self.canvas_widget.redraw()
+        ))
 
     def _save(self):
         export_canvas(
             self.canvas_widget._canvas,
-            self.state.width, self.state.height
+            self.state.width, self.state.height,
+            self.canvas_widget.get_composited_image()
         )
 
     def _bind_shortcuts(self):

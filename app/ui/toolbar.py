@@ -99,7 +99,6 @@ class Toolbar(tk.Frame):
 
         # Group: Transform
         g = self._group("Transform")
-        self._tool_btn(g,  "✥",  "Select",   TOOL_TRANSFORM)
         self._action_btn(g, "↔", "Translasi",
             lambda: self.on_transform_action("translate"))
         self._action_btn(g, "↻", "Rotasi",

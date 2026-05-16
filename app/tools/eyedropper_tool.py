@@ -3,13 +3,13 @@ from app.tools.base_tool import BaseTool
 
 
 class EyedropperTool(BaseTool):
-    def __init__(self, state, canvas, redraw_fn, get_pil_image_fn, on_color_picked_fn):
+    def __init__(self, state, canvas, redraw_fn, get_composited_image_fn, on_color_picked_fn):
         super().__init__(state, canvas, redraw_fn)
-        self.get_pil_image = get_pil_image_fn
+        self.get_composited_image = get_composited_image_fn
         self.on_color_picked = on_color_picked_fn
 
     def on_press(self, event):
-        img = self.get_pil_image()
+        img = self.get_composited_image()
         if img is None:
             return
         x, y = event.x, event.y

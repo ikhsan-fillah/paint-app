@@ -1,28 +1,39 @@
 """Tool paint bucket — flood fill pada canvas."""
 from app.tools.base_tool import BaseTool
-from PIL import Image, ImageTk
-import tkinter as tk
+from PIL import Image, ImageChops
 
 
 class FillTool(BaseTool):
-    def __init__(self, state, canvas, redraw_fn, get_pil_image_fn, set_pil_image_fn):
+    def __init__(self, state, canvas, redraw_fn,
+                 get_composited_image_fn, get_base_image_fn, set_base_image_fn):
         super().__init__(state, canvas, redraw_fn)
-        self.get_pil_image = get_pil_image_fn
-        self.set_pil_image = set_pil_image_fn
+        self.get_composited_image = get_composited_image_fn
+        self.get_base_image = get_base_image_fn
+        self.set_base_image = set_base_image_fn
 
     def on_press(self, event):
         x, y = event.x, event.y
-        img = self.get_pil_image()
-        if img is None or x >= img.width or y >= img.height:
+        comp = self.get_composited_image()
+        if comp is None or x >= comp.width or y >= comp.height or x < 0 or y < 0:
             return
         fill_rgb = self._hex_to_rgb(self.state.fg_color)
-        old_rgb = img.getpixel((x, y))
+        old_rgb = comp.getpixel((x, y))
         if len(old_rgb) == 4:
             old_rgb = old_rgb[:3]
         if old_rgb == fill_rgb:
             return
-        self._flood_fill_pil(img, x, y, fill_rgb, old_rgb)
-        self.set_pil_image(img)
+        before = comp.copy()
+        self._flood_fill_pil(comp, x, y, fill_rgb, old_rgb)
+
+        diff = ImageChops.difference(before, comp)
+        if diff.getbbox() is None:
+            return
+
+        mask = diff.convert("L").point(lambda v: 255 if v else 0)
+        base = self.get_base_image()
+        fill_layer = Image.new("RGB", base.size, fill_rgb)
+        base.paste(fill_layer, mask=mask)
+        self.set_base_image(base)
         self.redraw()
 
     def on_drag(self, event):
