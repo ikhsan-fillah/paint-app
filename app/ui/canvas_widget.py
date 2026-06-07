@@ -9,6 +9,7 @@ from app.config import (
 )
 
 HANDLE_SIZE = 8
+RESAMPLE_NEAREST = getattr(getattr(Image, "Resampling", Image), "NEAREST")
 
 
 class CanvasWidget(tk.Frame):
@@ -292,7 +293,7 @@ class CanvasWidget(tk.Frame):
         sw, sh = self.state.canvas_pixel_size()
         ox, oy = self._canvas_origin()
 
-        render = self.get_composited_image().resize((sw, sh), Image.NEAREST)
+        render = self.get_composited_image().resize((sw, sh), RESAMPLE_NEAREST)
         self._tk_image = ImageTk.PhotoImage(render)
         self._canvas.create_image(ox, oy, anchor=tk.NW, image=self._tk_image)
 
