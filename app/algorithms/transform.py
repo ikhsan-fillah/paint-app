@@ -44,27 +44,43 @@ def scale(points, sx, sy, cx=0, cy=0):
     return _apply(M, points)
 
 
-def reflect_x(points):
-    """Refleksi terhadap sumbu X: y' = -y."""
-    M = np.array([[1,0,0],[0,-1,0],[0,0,1]], dtype=float)
+def reflect_x(points, cy=0):
+    """Refleksi terhadap garis horizontal y = cy."""
+    M = np.array([
+        [1, 0, 0],
+        [0, -1, 2 * cy],
+        [0, 0, 1]
+    ], dtype=float)
     return _apply(M, points)
 
 
-def reflect_y(points):
-    """Refleksi terhadap sumbu Y: x' = -x."""
-    M = np.array([[-1,0,0],[0,1,0],[0,0,1]], dtype=float)
+def reflect_y(points, cx=0):
+    """Refleksi terhadap garis vertikal x = cx."""
+    M = np.array([
+        [-1, 0, 2 * cx],
+        [0, 1, 0],
+        [0, 0, 1]
+    ], dtype=float)
     return _apply(M, points)
 
 
-def reflect_origin(points):
-    """Refleksi terhadap titik pusat: x'=-x, y'=-y."""
-    M = np.array([[-1,0,0],[0,-1,0],[0,0,1]], dtype=float)
+def reflect_origin(points, cx=0, cy=0):
+    """Refleksi terhadap titik pusat (cx, cy)."""
+    M = np.array([
+        [-1, 0, 2 * cx],
+        [0, -1, 2 * cy],
+        [0, 0, 1]
+    ], dtype=float)
     return _apply(M, points)
 
 
-def reflect_diagonal(points):
-    """Refleksi terhadap garis y=x: tukar x dan y."""
-    M = np.array([[0,1,0],[1,0,0],[0,0,1]], dtype=float)
+def reflect_diagonal(points, cx=0, cy=0):
+    """Refleksi terhadap garis y = x yang melalui (cx, cy)."""
+    M = np.array([
+        [0, 1, cx - cy],
+        [1, 0, cy - cx],
+        [0, 0, 1]
+    ], dtype=float)
     return _apply(M, points)
 
 

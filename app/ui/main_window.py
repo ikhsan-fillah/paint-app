@@ -134,7 +134,6 @@ class MainWindow:
                 self.state, canvas, redraw,
                 get_base_image_fn=self.canvas_widget.get_base_image,
                 set_base_image_fn=self.canvas_widget.set_base_image,
-                flatten_fn=self.canvas_widget.flatten_objects_to_base,
                 to_screen_fn=self.canvas_widget._canvas_to_screen
             ),
             TOOL_TRANSFORM:  TransformTool(self.state, canvas, redraw),
@@ -230,7 +229,8 @@ class MainWindow:
         tool: TransformTool = self._tools.get(TOOL_TRANSFORM)
         if not tool:
             return
-        if self.state.selected_index == -1:
+        selected_indices = getattr(self.state, "selected_indices", [])
+        if self.state.selected_index == -1 and not selected_indices:
             messagebox.showwarning(
                 "Transform",
                 "Pilih objek dulu menggunakan tool Select Transform (✥)."
@@ -302,7 +302,7 @@ class MainWindow:
         win.resizable(False, False)
         win.grab_set()
         for label, mode in [
-            ("Sumbu X", "x"), ("Sumbu Y", "y"),
+            ("Kiri-Kanan (X)", "x"), ("Atas-Bawah (Y)", "y"),
             ("Titik Pusat", "origin"), ("Diagonal y=x", "diagonal")
         ]:
             tk.Button(
@@ -407,9 +407,20 @@ class MainWindow:
         self.root.bind("<Delete>",    lambda e: self._delete_selected())
 
     def _delete_selected(self):
+        indices = getattr(self.state, "selected_indices", [])
+        if indices:
+            self.history.save(self.state.objects)
+            for idx in sorted(indices, reverse=True):
+                self.state.remove_object(idx)
+            self.state.selected_indices = []
+            self.state.selected_index = -1
+            self.canvas_widget.redraw()
+            return
+
         idx = self.state.selected_index
         if idx >= 0:
             self.history.save(self.state.objects)
             self.state.remove_object(idx)
+            self.state.selected_indices = []
             self.state.selected_index = -1
             self.canvas_widget.redraw()

@@ -63,6 +63,8 @@ class CanvasWidget(tk.Frame):
         self._pil_image = img
         self.state.objects = []
         self.state.selected_index = -1
+        if hasattr(self.state, "selected_indices"):
+            self.state.selected_indices = []
 
     def _sorted_by_angle(self, pts):
         if len(pts) < 3:
@@ -95,6 +97,21 @@ class CanvasWidget(tk.Frame):
         r = max(1, width // 2)
         for x, y in points:
             draw.ellipse((x - r, y - r, x + r, y + r), fill=255)
+
+    def _apply_object_erasers(self, layer, obj):
+        erasers = obj.get("erasers", [])
+        if not erasers:
+            return layer
+        alpha = layer.getchannel("A")
+        mask = Image.new("L", layer.size, 0)
+        draw = ImageDraw.Draw(mask)
+        for eraser in erasers:
+            points = eraser.get("points", [])
+            width = max(1, int(eraser.get("width", 1)))
+            self._draw_round_mask(draw, points, width)
+        alpha.paste(0, mask=mask)
+        layer.putalpha(alpha)
+        return layer
 
     def _draw_objects_to_image(self, img: Image.Image):
         if img.mode != "RGBA":
@@ -131,6 +148,7 @@ class CanvasWidget(tk.Frame):
                         draw.polygon(pts, fill=fill_rgba)
                     self._draw_round_path(draw, pts + [pts[0]], width, stroke_rgba)
 
+            layer = self._apply_object_erasers(layer, obj)
             img = Image.alpha_composite(img, layer)
 
         return img.convert("RGB")
@@ -278,8 +296,13 @@ class CanvasWidget(tk.Frame):
         self._tk_image = ImageTk.PhotoImage(render)
         self._canvas.create_image(ox, oy, anchor=tk.NW, image=self._tk_image)
 
-        if 0 <= self.state.selected_index < len(self.state.objects):
-            self._render_object(self.state.objects[self.state.selected_index], ox, oy, True)
+        selected_indices = getattr(self.state, "selected_indices", [])
+        if not selected_indices and 0 <= self.state.selected_index < len(self.state.objects):
+            selected_indices = [self.state.selected_index]
+
+        for idx in selected_indices:
+            if 0 <= idx < len(self.state.objects):
+                self._render_object(self.state.objects[idx], ox, oy, True)
 
         self._canvas.create_rectangle(
             ox-1, oy-1, ox+sw, oy+sh,
@@ -390,6 +413,18 @@ class CanvasWidget(tk.Frame):
                 draw_outline(pts)
 
         if selected:
+            for eraser in obj.get("erasers", []):
+                points = eraser.get("points", [])
+                if len(points) < 2:
+                    continue
+                width = max(1, int(eraser.get("width", 1) * scale))
+                for (p0, p1) in self._clip_polyline(points):
+                    seg = sc([p0, p1])
+                    self._canvas.create_line(
+                        seg[0][0], seg[0][1], seg[1][0], seg[1][1],
+                        fill=CANVAS_BG, width=width,
+                        capstyle=tk.ROUND, joinstyle=tk.ROUND
+                    )
             pts = sc(obj["points"])
             xs = [p[0] for p in pts]
             ys = [p[1] for p in pts]

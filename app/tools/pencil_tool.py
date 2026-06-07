@@ -14,22 +14,29 @@ class PencilTool(BaseTool):
         self._set_base_image = set_base_image_fn
         self._flatten = flatten_fn
         self._to_screen = to_screen_fn
+        self._erase_target_index = None
 
     def on_press(self, event):
         super().on_press(event)
         self._current_points = [(event.x, event.y)]
-        if self.state.active_tool == TOOL_ERASER and self._flatten:
-            self._flatten()
+        if self.state.active_tool == TOOL_ERASER:
+            self._erase_target_index = self._hit_object(event.x, event.y)
 
     def on_drag(self, event):
         x, y = event.x, event.y
-        if self.state.active_tool == TOOL_ERASER and self._get_base_image:
+        if self.state.active_tool == TOOL_ERASER:
             if self._current_points:
                 lx, ly = self._current_points[-1]
-                img = self._get_base_image()
-                img = self._erase_segment(img, (lx, ly), (x, y), self.state.line_width)
-                if self._set_base_image:
-                    self._set_base_image(img)
+                if self._erase_target_index is None:
+                    self._erase_target_index = self._hit_object(x, y)
+                if self._erase_target_index is not None:
+                    self._erase_object_segment(self._erase_target_index, (lx, ly), (x, y))
+                    self.redraw()
+                elif self._get_base_image:
+                    img = self._get_base_image()
+                    img = self._erase_segment(img, (lx, ly), (x, y), self.state.line_width)
+                    if self._set_base_image:
+                        self._set_base_image(img)
         else:
             if self._current_points:
                 lx, ly = self._current_points[-1]
@@ -69,7 +76,39 @@ class PencilTool(BaseTool):
                     "dash": (),
                 })
         self._current_points = []
+        self._erase_target_index = None
         self.redraw()
+
+    def _erase_object_segment(self, index, p0, p1):
+        if not (0 <= index < len(self.state.objects)):
+            return
+        obj = self.state.objects[index]
+        obj.setdefault("erasers", []).append({
+            "points": [p0, p1],
+            "width": self.state.line_width,
+        })
+
+    def _hit_object(self, x, y):
+        for rev_index, obj in enumerate(reversed(self.state.objects)):
+            if obj.get("type") == "eraser":
+                continue
+            bbox = self._bbox(obj)
+            if not bbox:
+                continue
+            left, top, right, bottom = bbox
+            pad = max(10, int(self.state.line_width))
+            if left - pad <= x <= right + pad and top - pad <= y <= bottom + pad:
+                return len(self.state.objects) - 1 - rev_index
+        return None
+
+    @staticmethod
+    def _bbox(obj):
+        pts = obj.get("points", [])
+        if not pts:
+            return None
+        xs = [p[0] for p in pts]
+        ys = [p[1] for p in pts]
+        return min(xs), min(ys), max(xs), max(ys)
 
     @staticmethod
     def _erase_segment(img: Image.Image, p0, p1, width):

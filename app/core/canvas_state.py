@@ -28,6 +28,7 @@ class CanvasState:
 
         # Objek yang sedang dipilih (untuk transform)
         self.selected_index: int = -1
+        self.selected_indices: list[int] = []
 
         # Posisi kursor
         self.cursor_x = 0
@@ -39,10 +40,17 @@ class CanvasState:
     def remove_object(self, index: int):
         if 0 <= index < len(self.objects):
             self.objects.pop(index)
+            self.selected_indices = [
+                i if i < index else i - 1
+                for i in self.selected_indices
+                if i != index
+            ]
+            self.selected_index = self.selected_indices[0] if self.selected_indices else -1
 
     def clear(self):
         self.objects.clear()
         self.selected_index = -1
+        self.selected_indices = []
 
     def get_dash_pattern(self):
         return LINE_STYLES.get(self.line_style, ())
