@@ -91,6 +91,169 @@ class CanvasWidget(tk.Frame):
         for x, y in points:
             draw.ellipse((x - r, y - r, x + r, y + r), fill=color)
 
+    def _draw_round_segment(self, draw, p0, p1, width, color):
+        draw.line([p0, p1], fill=color, width=width)
+        r = max(1, width // 2)
+        for x, y in (p0, p1):
+            draw.ellipse((x - r, y - r, x + r, y + r), fill=color)
+
+    @staticmethod
+    def _draw_segment(draw, p0, p1, width, color):
+        draw.line([p0, p1], fill=color, width=width)
+
+    @staticmethod
+    def _path_lengths(points):
+        lengths = [0.0]
+        total = 0.0
+        for i in range(len(points) - 1):
+            x0, y0 = points[i]
+            x1, y1 = points[i + 1]
+            total += math.hypot(float(x1 - x0), float(y1 - y0))
+            lengths.append(total)
+        return lengths
+
+    @staticmethod
+    def _point_at(points, lengths, distance):
+        if distance <= 0:
+            return points[0]
+        total = lengths[-1]
+        if distance >= total:
+            return points[-1]
+
+        for i in range(len(lengths) - 1):
+            a = lengths[i]
+            b = lengths[i + 1]
+            if a <= distance <= b:
+                span = b - a
+                if span <= 0:
+                    return points[i]
+                t = (distance - a) / span
+                x0, y0 = points[i]
+                x1, y1 = points[i + 1]
+                return (x0 + (x1 - x0) * t, y0 + (y1 - y0) * t)
+        return points[-1]
+
+    def _draw_path_interval(self, draw, points, lengths, start, end, width, color):
+        if end <= start:
+            return
+        r = max(1, width // 2)
+        step = max(1.0, width * 0.6)
+        samples = [self._point_at(points, lengths, start)]
+        cursor = start + step
+        while cursor < end:
+            samples.append(self._point_at(points, lengths, cursor))
+            cursor += step
+        samples.append(self._point_at(points, lengths, end))
+        if len(samples) == 1:
+            x, y = samples[0]
+            draw.ellipse((x - r, y - r, x + r, y + r), fill=color)
+        else:
+            draw.line(samples, fill=color, width=width)
+            sx, sy = samples[0]
+            ex, ey = samples[-1]
+            draw.ellipse((sx - r, sy - r, sx + r, sy + r), fill=color)
+            draw.ellipse((ex - r, ey - r, ex + r, ey + r), fill=color)
+
+    @staticmethod
+    def _is_dotted_pattern(pattern):
+        return len(pattern) == 2 and pattern[0] <= 2.5 and pattern[1] >= pattern[0]
+
+    @staticmethod
+    def _effective_dash_pattern(pattern, width):
+        if not pattern:
+            return pattern
+        if width <= 5:
+            return pattern
+
+        # DashDot canonical pattern: (dash, gap, dot, gap)
+        if (
+            len(pattern) == 4
+            and pattern[2] <= pattern[0]
+            and pattern[2] <= pattern[1]
+        ):
+            scale = width / 5.0
+            dash = max(float(pattern[0]) * scale, width * 1.5)
+            gap1 = max(float(pattern[1]) * scale, width * 1.1)
+            dot = min(max(float(pattern[2]) * scale, width * 0.35), width * 0.75)
+            gap2 = max(float(pattern[3]) * scale, width * 1.1)
+            return [dash, gap1, dot, gap2]
+
+        scale = width / 5.0
+        adjusted = [float(v) * scale for v in pattern]
+        for idx, value in enumerate(adjusted):
+            if idx % 2 == 1:
+                adjusted[idx] = max(value, width * 1.2)
+            else:
+                adjusted[idx] = max(value, width * 1.4)
+        return adjusted
+
+    def _draw_dotted_path(self, draw, points, width, color, spacing):
+        if len(points) < 2:
+            return
+        r = max(1, width // 2)
+        spacing = max(float(spacing), width * 1.2)
+        next_dot = 0.0
+        distance = 0.0
+
+        for i in range(len(points) - 1):
+            x0, y0 = points[i]
+            x1, y1 = points[i + 1]
+            dx = float(x1 - x0)
+            dy = float(y1 - y0)
+            seg_len = math.hypot(dx, dy)
+            if seg_len <= 0:
+                continue
+
+            while next_dot <= distance + seg_len:
+                d = next_dot - distance
+                t = d / seg_len
+                px = x0 + dx * t
+                py = y0 + dy * t
+                draw.ellipse((px - r, py - r, px + r, py + r), fill=color)
+                next_dot += spacing
+
+            distance += seg_len
+
+    def _draw_styled_path(self, draw, points, width, color, dash=()):
+        if len(points) < 2:
+            return
+        raw_pattern = [max(1.0, float(v)) for v in (dash or ()) if float(v) > 0]
+        pattern = self._effective_dash_pattern(raw_pattern, width)
+        if not pattern:
+            self._draw_round_path(draw, points, width, color)
+            return
+        if self._is_dotted_pattern(raw_pattern):
+            self._draw_dotted_path(draw, points, width, color, pattern[0] + pattern[1])
+            return
+
+        lengths = self._path_lengths(points)
+        total = lengths[-1]
+        if total <= 0:
+            return
+
+        cursor = 0.0
+        pat_idx = 0
+        draw_on = True
+        dashdot_mode = (
+            len(raw_pattern) == 4
+            and raw_pattern[2] <= raw_pattern[0]
+            and raw_pattern[2] <= raw_pattern[1]
+        )
+        while cursor < total:
+            span = pattern[pat_idx]
+            nxt = min(total, cursor + span)
+            if draw_on and nxt > cursor:
+                if dashdot_mode and pat_idx == 2:
+                    mid = (cursor + nxt) / 2.0
+                    cx, cy = self._point_at(points, lengths, mid)
+                    r = max(1, width // 2)
+                    draw.ellipse((cx - r, cy - r, cx + r, cy + r), fill=color)
+                else:
+                    self._draw_path_interval(draw, points, lengths, cursor, nxt, width, color)
+            cursor = nxt
+            pat_idx = (pat_idx + 1) % len(pattern)
+            draw_on = not draw_on
+
     def _draw_round_mask(self, draw, points, width):
         if len(points) < 2:
             return
@@ -130,6 +293,7 @@ class CanvasWidget(tk.Frame):
             otype = obj.get("type")
             color = obj.get("color", "#000000")
             width = max(1, int(obj.get("width", 1)))
+            dash = obj.get("dash", ())
             opacity = obj.get("opacity", 100)
             stroke_rgba = self._rgba(color, opacity)
             fill_rgba = self._rgba(obj.get("bg_color", "#000000"), opacity) if obj.get("fill") else None
@@ -142,21 +306,21 @@ class CanvasWidget(tk.Frame):
             if otype in ("line", "pencil"):
                 pts = obj.get("points", [])
                 if len(pts) >= 2:
-                    self._draw_round_path(draw, pts, width, stroke_rgba)
+                    self._draw_styled_path(draw, pts, width, stroke_rgba, dash)
             elif otype in ("rect", "triangle", "polygon"):
                 pts = obj.get("points", [])
                 if len(pts) >= 3:
                     if fill_rgba is not None:
                         draw.polygon(pts, fill=fill_rgba)
-                    self._draw_round_path(draw, pts + [pts[0]], width, stroke_rgba)
+                    self._draw_styled_path(draw, pts + [pts[0]], width, stroke_rgba, dash)
                 elif len(pts) == 2:
-                    self._draw_round_path(draw, pts, width, stroke_rgba)
+                    self._draw_styled_path(draw, pts, width, stroke_rgba, dash)
             elif otype in ("circle", "ellipse"):
                 pts = self._sorted_by_angle(obj.get("points", []))
                 if len(pts) >= 3:
                     if fill_rgba is not None:
                         draw.polygon(pts, fill=fill_rgba)
-                    self._draw_round_path(draw, pts + [pts[0]], width, stroke_rgba)
+                    self._draw_styled_path(draw, pts + [pts[0]], width, stroke_rgba, dash)
 
             layer = self._apply_object_erasers(layer, obj)
             img = Image.alpha_composite(img, layer)

@@ -22,6 +22,10 @@ class ShapeTool(BaseTool):
         if not self._to_screen:
             return points
         return [self._to_screen(x, y) for x, y in points]
+
+    def _shape_fill_color(self):
+        return self.state.fg_color if self.state.fill_shape else ""
+
     def _clip_line(self, x0, y0, x1, y1):
         xmin, ymin = 0.0, 0.0
         xmax, ymax = float(self.state.width - 1), float(self.state.height - 1)
@@ -149,7 +153,7 @@ class ShapeTool(BaseTool):
             width=self.state.line_width,
             dash=self.state.get_dash_pattern()
         )
-        kw["fill"] = self.state.bg_color if self.state.fill_shape else ""
+        kw["fill"] = self._shape_fill_color()
         if len(clipped) >= 3:
             flat = [c for p in self._to_screen_points(clipped) for c in p]
             self._preview_id = self.canvas.create_polygon(flat, **kw)
@@ -174,7 +178,7 @@ class ShapeTool(BaseTool):
             width=self.state.line_width,
             dash=self.state.get_dash_pattern()
         )
-        kw["fill"] = self.state.bg_color if self.state.fill_shape else ""
+        kw["fill"] = self._shape_fill_color()
         if len(clipped) >= 3:
             flat = [c for p in self._to_screen_points(clipped) for c in p]
             self._preview_id = self.canvas.create_polygon(flat, **kw)
@@ -218,7 +222,7 @@ class ShapeTool(BaseTool):
                 flat = [c for p in self._to_screen_points(clipped) for c in p]
                 self._preview_id = self.canvas.create_polygon(
                     flat, outline=self.state.fg_color,
-                    fill=self.state.bg_color if self.state.fill_shape else "",
+                    fill=self._shape_fill_color(),
                     width=self.state.line_width,
                     dash=self.state.get_dash_pattern()
                 )
@@ -242,7 +246,7 @@ class ShapeTool(BaseTool):
                 "type": "polygon",
                 "points": list(self._polygon_points),
                 "color": self.state.fg_color,
-                "bg_color": self.state.bg_color,
+                "bg_color": self.state.fg_color,
                 "width": self.state.line_width,
                 "opacity": self.state.opacity,
                 "dash": self.state.get_dash_pattern(),
@@ -254,7 +258,7 @@ class ShapeTool(BaseTool):
     def _build_object(self, tool, x0, y0, x1, y1):
         common = {
             "color": self.state.fg_color,
-            "bg_color": self.state.bg_color,
+            "bg_color": self.state.fg_color,
             "width": self.state.line_width,
             "opacity": self.state.opacity,
             "dash": self.state.get_dash_pattern(),
