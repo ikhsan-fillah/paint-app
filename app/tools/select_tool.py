@@ -1,4 +1,5 @@
 """Tool seleksi objek dan crop canvas."""
+from app.algorithms import transform as T
 from app.tools.base_tool import BaseTool
 
 
@@ -106,6 +107,9 @@ class SelectTool(BaseTool):
 
     def _move_object(self, obj, dx, dy):
         obj["points"] = [(x + dx, y + dy) for x, y in obj.get("points", [])]
+        mask = obj.get("erase_mask")
+        if mask is not None:
+            obj["erase_mask"] = T.translate_mask(mask, (self.state.width, self.state.height), dx, dy)
         for eraser in obj.get("erasers", []):
             eraser["points"] = [
                 (x + dx, y + dy) for x, y in eraser.get("points", [])

@@ -83,10 +83,24 @@ class PencilTool(BaseTool):
         if not (0 <= index < len(self.state.objects)):
             return
         obj = self.state.objects[index]
-        obj.setdefault("erasers", []).append({
-            "points": [p0, p1],
-            "width": self.state.line_width,
-        })
+        mask = obj.get("erase_mask")
+        if mask is None:
+            mask = Image.new("L", (self.state.width, self.state.height), 0)
+        elif mask.size != (self.state.width, self.state.height):
+            resized = Image.new("L", (self.state.width, self.state.height), 0)
+            resized.paste(
+                mask.crop((0, 0, min(mask.width, self.state.width), min(mask.height, self.state.height))),
+                (0, 0)
+            )
+            mask = resized
+        draw = ImageDraw.Draw(mask)
+        width = max(1, int(self.state.line_width))
+        draw.line([p0, p1], fill=255, width=width)
+        r = max(1, width // 2)
+        for x, y in (p0, p1):
+            draw.ellipse((x - r, y - r, x + r, y + r), fill=255)
+        obj["erase_mask"] = mask
+        obj.pop("erasers", None)
 
     def _hit_object(self, x, y):
         for rev_index, obj in enumerate(reversed(self.state.objects)):

@@ -100,16 +100,25 @@ class CanvasWidget(tk.Frame):
             draw.ellipse((x - r, y - r, x + r, y + r), fill=255)
 
     def _apply_object_erasers(self, layer, obj):
+        mask = obj.get("erase_mask")
         erasers = obj.get("erasers", [])
-        if not erasers:
+        if mask is None and not erasers:
             return layer
         alpha = layer.getchannel("A")
-        mask = Image.new("L", layer.size, 0)
-        draw = ImageDraw.Draw(mask)
-        for eraser in erasers:
-            points = eraser.get("points", [])
-            width = max(1, int(eraser.get("width", 1)))
-            self._draw_round_mask(draw, points, width)
+        if mask is None:
+            mask = Image.new("L", layer.size, 0)
+            draw = ImageDraw.Draw(mask)
+            for eraser in erasers:
+                points = eraser.get("points", [])
+                width = max(1, int(eraser.get("width", 1)))
+                self._draw_round_mask(draw, points, width)
+        elif mask.size != layer.size:
+            fitted = Image.new("L", layer.size, 0)
+            fitted.paste(
+                mask.crop((0, 0, min(mask.width, layer.width), min(mask.height, layer.height))),
+                (0, 0)
+            )
+            mask = fitted
         alpha.paste(0, mask=mask)
         layer.putalpha(alpha)
         return layer
@@ -164,6 +173,16 @@ class CanvasWidget(tk.Frame):
         self._pil_image   = new_img
         self.state.width  = new_w
         self.state.height = new_h
+        for obj in self.state.objects:
+            mask = obj.get("erase_mask")
+            if mask is None:
+                continue
+            fitted = Image.new("L", (new_w, new_h), 0)
+            fitted.paste(
+                mask.crop((0, 0, min(mask.width, new_w), min(mask.height, new_h))),
+                (0, 0)
+            )
+            obj["erase_mask"] = fitted
         self._draw_all()
 
     # ── Koordinat ─────────────────────────────────────────────────────
@@ -368,52 +387,53 @@ class CanvasWidget(tk.Frame):
                     capstyle=tk.ROUND, joinstyle=tk.ROUND
                 )
 
-        if otype in ("line", "pencil", "eraser"):
-            pts = obj.get("points", [])
-            if len(pts) >= 2:
-                segments = self._clip_polyline(pts)
-                for (p0, p1) in segments:
-                    seg = sc([p0, p1])
-                    self._canvas.create_line(
-                        seg[0][0], seg[0][1], seg[1][0], seg[1][1],
-                        fill=color, width=width,
-                        dash=dash, capstyle=tk.ROUND, joinstyle=tk.ROUND
-                    )
-        elif otype == "rect":
-            pts = obj.get("points", [])
-            if fill:
-                clipped = self._clip_polygon(pts)
-                if len(clipped) >= 3:
-                    flat = [c for p in sc(clipped) for c in p]
-                    self._canvas.create_polygon(
-                        flat, outline=color, fill=fill, width=width, dash=dash
-                    )
-            else:
-                draw_outline(pts)
-        elif otype in ("circle", "ellipse"):
-            pts = self._sorted_by_angle(obj.get("points", []))
-            if fill:
-                clipped = self._clip_polygon(pts)
-                if len(clipped) >= 3:
-                    flat = [c for p in sc(clipped) for c in p]
-                    self._canvas.create_polygon(
-                        flat, outline=color, fill=fill, width=width, dash=dash
-                    )
-            else:
-                draw_outline(pts)
-        elif otype in ("triangle", "polygon"):
-            pts = obj.get("points", [])
-            if fill:
-                clipped = self._clip_polygon(pts)
-                if len(clipped) >= 3:
-                    flat = [c for p in sc(clipped) for c in p]
-                    self._canvas.create_polygon(
-                        flat, outline=color, fill=fill, width=width, dash=dash
-                    )
-            else:
-                draw_outline(pts)
+        if not selected:
+            if otype in ("line", "pencil", "eraser"):
+                pts = obj.get("points", [])
+                if len(pts) >= 2:
+                    segments = self._clip_polyline(pts)
+                    for (p0, p1) in segments:
+                        seg = sc([p0, p1])
+                        self._canvas.create_line(
+                            seg[0][0], seg[0][1], seg[1][0], seg[1][1],
+                            fill=color, width=width,
+                            dash=dash, capstyle=tk.ROUND, joinstyle=tk.ROUND
+                        )
+            elif otype == "rect":
+                pts = obj.get("points", [])
+                if fill:
+                    clipped = self._clip_polygon(pts)
+                    if len(clipped) >= 3:
+                        flat = [c for p in sc(clipped) for c in p]
+                        self._canvas.create_polygon(
+                            flat, outline=color, fill=fill, width=width, dash=dash
+                        )
+                else:
+                    draw_outline(pts)
+            elif otype in ("circle", "ellipse"):
+                pts = self._sorted_by_angle(obj.get("points", []))
+                if fill:
+                    clipped = self._clip_polygon(pts)
+                    if len(clipped) >= 3:
+                        flat = [c for p in sc(clipped) for c in p]
+                        self._canvas.create_polygon(
+                            flat, outline=color, fill=fill, width=width, dash=dash
+                        )
+                else:
+                    draw_outline(pts)
+            elif otype in ("triangle", "polygon"):
+                pts = obj.get("points", [])
+                if fill:
+                    clipped = self._clip_polygon(pts)
+                    if len(clipped) >= 3:
+                        flat = [c for p in sc(clipped) for c in p]
+                        self._canvas.create_polygon(
+                            flat, outline=color, fill=fill, width=width, dash=dash
+                        )
+                else:
+                    draw_outline(pts)
 
-        if selected:
+        if selected and not obj.get("erase_mask"):
             for eraser in obj.get("erasers", []):
                 points = eraser.get("points", [])
                 if len(points) < 2:

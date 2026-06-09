@@ -39,6 +39,7 @@ class TransformTool(BaseTool):
             self.redraw()
 
     def _move_object_metadata(self, obj, dx, dy):
+        self._transform_mask(obj, lambda mask: T.translate_mask(mask, (self.state.width, self.state.height), dx, dy))
         self._transform_erasers(obj, lambda points: T.translate(points, dx, dy))
         if "cx" in obj:
             obj["cx"] += dx
@@ -48,6 +49,11 @@ class TransformTool(BaseTool):
     def _transform_erasers(self, obj, transform_fn):
         for eraser in obj.get("erasers", []):
             eraser["points"] = transform_fn(eraser.get("points", []))
+
+    def _transform_mask(self, obj, transform_fn):
+        mask = obj.get("erase_mask")
+        if mask is not None:
+            obj["erase_mask"] = transform_fn(mask)
 
     def _apply_to_selected(self, transform_fn):
         indices = self._get_selected_indices()
@@ -61,6 +67,7 @@ class TransformTool(BaseTool):
         def rotate_obj(obj):
             cx, cy = self._center_of(obj)
             obj["points"] = T.rotate(obj["points"], angle_deg, cx, cy)
+            self._transform_mask(obj, lambda mask: T.rotate_mask(mask, (self.state.width, self.state.height), angle_deg, cx, cy))
             self._transform_erasers(obj, lambda points: T.rotate(points, angle_deg, cx, cy))
 
         self._apply_to_selected(rotate_obj)
@@ -69,6 +76,7 @@ class TransformTool(BaseTool):
         def scale_obj(obj):
             cx, cy = self._center_of(obj)
             obj["points"] = T.scale(obj["points"], sx, sy, cx, cy)
+            self._transform_mask(obj, lambda mask: T.scale_mask(mask, (self.state.width, self.state.height), sx, sy, cx, cy))
             self._transform_erasers(obj, lambda points: T.scale(points, sx, sy, cx, cy))
 
         self._apply_to_selected(scale_obj)
@@ -78,15 +86,19 @@ class TransformTool(BaseTool):
             cx, cy = self._center_of(obj)
             if mode == "x":
                 obj["points"] = T.reflect_y(obj["points"], cx)
+                self._transform_mask(obj, lambda mask: T.reflect_y_mask(mask, (self.state.width, self.state.height), cx))
                 self._transform_erasers(obj, lambda points: T.reflect_y(points, cx))
             elif mode == "y":
                 obj["points"] = T.reflect_x(obj["points"], cy)
+                self._transform_mask(obj, lambda mask: T.reflect_x_mask(mask, (self.state.width, self.state.height), cy))
                 self._transform_erasers(obj, lambda points: T.reflect_x(points, cy))
             elif mode == "origin":
                 obj["points"] = T.reflect_origin(obj["points"], cx, cy)
+                self._transform_mask(obj, lambda mask: T.reflect_origin_mask(mask, (self.state.width, self.state.height), cx, cy))
                 self._transform_erasers(obj, lambda points: T.reflect_origin(points, cx, cy))
             elif mode == "diagonal":
                 obj["points"] = T.reflect_diagonal(obj["points"], cx, cy)
+                self._transform_mask(obj, lambda mask: T.reflect_diagonal_mask(mask, (self.state.width, self.state.height), cx, cy))
                 self._transform_erasers(obj, lambda points: T.reflect_diagonal(points, cx, cy))
 
         self._apply_to_selected(reflect_obj)
@@ -95,9 +107,11 @@ class TransformTool(BaseTool):
         def shear_obj(obj):
             if shx != 0:
                 obj["points"] = T.shear_x(obj["points"], shx)
+                self._transform_mask(obj, lambda mask: T.shear_x_mask(mask, (self.state.width, self.state.height), shx))
                 self._transform_erasers(obj, lambda points: T.shear_x(points, shx))
             if shy != 0:
                 obj["points"] = T.shear_y(obj["points"], shy)
+                self._transform_mask(obj, lambda mask: T.shear_y_mask(mask, (self.state.width, self.state.height), shy))
                 self._transform_erasers(obj, lambda points: T.shear_y(points, shy))
 
         self._apply_to_selected(shear_obj)

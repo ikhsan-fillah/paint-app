@@ -1,6 +1,8 @@
 """Transformasi 2D menggunakan matriks homogeneous 3x3 (numpy)."""
-import numpy as np
 import math
+
+import numpy as np
+from PIL import Image
 
 
 def _apply(matrix, points):
@@ -94,3 +96,88 @@ def shear_y(points, shy):
     """Shear terhadap sumbu Y: y' = y + shy*x."""
     M = np.array([[1,0,0],[shy,1,0],[0,0,1]], dtype=float)
     return _apply(M, points)
+
+
+def _transform_mask(mask, size, matrix):
+    """Terapkan transform affine ke bitmap mask grayscale."""
+    if mask is None:
+        return None
+    inv = np.linalg.inv(matrix)
+    coeffs = (
+        float(inv[0, 0]), float(inv[0, 1]), float(inv[0, 2]),
+        float(inv[1, 0]), float(inv[1, 1]), float(inv[1, 2]),
+    )
+    return mask.transform(size, Image.AFFINE, coeffs, resample=Image.NEAREST, fillcolor=0)
+
+
+def translate_mask(mask, size, tx, ty):
+    M = np.array([
+        [1, 0, tx],
+        [0, 1, ty],
+        [0, 0, 1]
+    ], dtype=float)
+    return _transform_mask(mask, size, M)
+
+
+def rotate_mask(mask, size, angle_deg, cx=0, cy=0):
+    rad = math.radians(angle_deg)
+    cos_a, sin_a = math.cos(rad), math.sin(rad)
+    T1 = np.array([[1,0,-cx],[0,1,-cy],[0,0,1]], dtype=float)
+    R  = np.array([[cos_a,-sin_a,0],[sin_a,cos_a,0],[0,0,1]], dtype=float)
+    T2 = np.array([[1,0,cx],[0,1,cy],[0,0,1]], dtype=float)
+    M = T2 @ R @ T1
+    return _transform_mask(mask, size, M)
+
+
+def scale_mask(mask, size, sx, sy, cx=0, cy=0):
+    T1 = np.array([[1,0,-cx],[0,1,-cy],[0,0,1]], dtype=float)
+    S  = np.array([[sx,0,0],[0,sy,0],[0,0,1]], dtype=float)
+    T2 = np.array([[1,0,cx],[0,1,cy],[0,0,1]], dtype=float)
+    M = T2 @ S @ T1
+    return _transform_mask(mask, size, M)
+
+
+def reflect_x_mask(mask, size, cy=0):
+    M = np.array([
+        [1, 0, 0],
+        [0, -1, 2 * cy],
+        [0, 0, 1]
+    ], dtype=float)
+    return _transform_mask(mask, size, M)
+
+
+def reflect_y_mask(mask, size, cx=0):
+    M = np.array([
+        [-1, 0, 2 * cx],
+        [0, 1, 0],
+        [0, 0, 1]
+    ], dtype=float)
+    return _transform_mask(mask, size, M)
+
+
+def reflect_origin_mask(mask, size, cx=0, cy=0):
+    M = np.array([
+        [-1, 0, 2 * cx],
+        [0, -1, 2 * cy],
+        [0, 0, 1]
+    ], dtype=float)
+    return _transform_mask(mask, size, M)
+
+
+def reflect_diagonal_mask(mask, size, cx=0, cy=0):
+    M = np.array([
+        [0, 1, cx - cy],
+        [1, 0, cy - cx],
+        [0, 0, 1]
+    ], dtype=float)
+    return _transform_mask(mask, size, M)
+
+
+def shear_x_mask(mask, size, shx):
+    M = np.array([[1,shx,0],[0,1,0],[0,0,1]], dtype=float)
+    return _transform_mask(mask, size, M)
+
+
+def shear_y_mask(mask, size, shy):
+    M = np.array([[1,0,0],[shy,1,0],[0,0,1]], dtype=float)
+    return _transform_mask(mask, size, M)
